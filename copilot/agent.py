@@ -1,12 +1,14 @@
 # The copilot's agent, built with LangGraph. A graph of small functions ("nodes") that share one
 # state dict. The model decides which node runs next (that is what makes it an agent, not a chain):
 #
-#   START -> plan --retrieve--> retrieve --> plan        (loop: gather more if needed)
-#                 --tool------> call_tool --> plan
-#                 --answer----> answer --> verify --> END
+#   START -> guard_input --blocked--> finalize -> END     (injection or write request: refuse at once)
+#                        --ok-------> plan --retrieve--> retrieve --> plan   (loop: gather more if needed)
+#                                          --tool------> call_tool --> plan
+#                                          --answer----> answer --> verify --> finalize -> END
 #
 # The loop is capped: after MAX_STEPS plan decisions the graph is forced to answer, a repeated
 # action is turned into "answer", and LangGraph's recursion_limit is a final safety net.
+# finalize validates the result against the CopilotAnswer schema before anyone sees it.
 
 import json
 import operator
@@ -17,13 +19,13 @@ from typing import Annotated, TypedDict
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
+from copilot import guardrails
 from copilot.retriever import Retriever
-from copilot.schemas import Plan
+from copilot.schemas import REFUSAL, CopilotAnswer, Plan
 from copilot.tools import TOOL_DESCRIPTIONS, TOOLS, call_tool
 
 MAX_STEPS = 5
 TOP_K = 4
-REFUSAL = "I don't know from the docs."
 
 
 class State(TypedDict, total=False):
@@ -43,6 +45,7 @@ class State(TypedDict, total=False):
     llm_calls: Annotated[list[dict], operator.add]   # node, tokens and time of every model call
     events: Annotated[list[dict], operator.add]      # decisions worth tracing (fallbacks, caps...)
     timings: Annotated[list[dict], operator.add]     # node name + milliseconds
+    output: dict               # the validated CopilotAnswer: the only thing the API returns
     latency_ms: float
 
 
@@ -103,8 +106,11 @@ Reply with one word: yes or no."""
 
 
 class Copilot:
-    def __init__(self, llm, retriever: Retriever | None = None, tool_fn=call_tool):
+    def __init__(self, llm, retriever: Retriever | None = None, tool_fn=call_tool,
+                 min_score: float = guardrails.MIN_SCORE):
         self.llm = llm
+        # Calibrated for nomic-embed-text. Tests pass their own, because fake embeddings score differently.
+        self.min_score = min_score
         self.retriever = retriever or Retriever(llm)
         self.tool_fn = tool_fn  # tests pass a fake, so they never need the real ledger
         self.graph = self._build_graph()
@@ -112,16 +118,19 @@ class Copilot:
     # ---------- graph wiring ----------
     def _build_graph(self):
         g = StateGraph(State)
-        for name in ("plan", "retrieve", "call_tool", "answer", "verify"):
+        for name in ("guard_input", "plan", "retrieve", "call_tool", "answer", "verify", "finalize"):
             g.add_node(name, self._timed(name, getattr(self, name)))
-        g.add_edge(START, "plan")
+        g.add_edge(START, "guard_input")
+        g.add_conditional_edges("guard_input", lambda s: "finalize" if s.get("refused") else "plan",
+                                {"finalize": "finalize", "plan": "plan"})
         # After plan, the decision picks the next node. This conditional edge IS the agent's choice.
         g.add_conditional_edges("plan", lambda s: s["plan"]["action"],
                                 {"retrieve": "retrieve", "tool": "call_tool", "answer": "answer"})
         g.add_edge("retrieve", "plan")
         g.add_edge("call_tool", "plan")
         g.add_edge("answer", "verify")
-        g.add_edge("verify", END)
+        g.add_edge("verify", "finalize")
+        g.add_edge("finalize", END)
         return g.compile()
 
     def _timed(self, name, fn):
@@ -140,6 +149,17 @@ class Copilot:
         return res.text, call
 
     # ---------- nodes: each takes the state and returns ONLY the keys it changes ----------
+    def guard_input(self, state: State) -> dict:
+        """Guardrails (b) and (c) on the user's question, before the model ever sees it."""
+        q = state["question"]
+        if pattern := guardrails.detect_injection(q):
+            return {**self._refuse("prompt_injection", [], [{"type": "injection_in_question", "pattern": pattern}]),
+                    "answer": guardrails.INJECTION_REFUSAL}
+        if pattern := guardrails.detect_write(q):
+            return {**self._refuse("write_blocked", [], [{"type": "write_request", "pattern": pattern}]),
+                    "answer": guardrails.WRITE_REFUSAL}
+        return {"events": [{"type": "input_ok"}]}
+
     def plan(self, state: State) -> dict:
         steps = state.get("steps", 0) + 1
         if steps > MAX_STEPS:  # hard cap: whatever the model wants, it must answer now
@@ -161,16 +181,28 @@ class Copilot:
         if self._already_done(state, plan):  # loop breaker: the same action twice adds nothing
             events.append({"type": "repeated_action", "plan": plan.model_dump()})
             plan = Plan(action="answer")
+        if plan.action == "answer" and steps == 1:
+            # Answering before looking at anything can only be outside knowledge. Search the docs first;
+            # if they are off-topic, the score threshold refuses.
+            events.append({"type": "forced_first_retrieve"})
+            plan = Plan(action="retrieve")
         return {"steps": steps, "plan": plan.model_dump(), "llm_calls": [call], "events": events}
 
     def retrieve(self, state: State) -> dict:
         query = state["plan"].get("query") or state["question"]
         hits = self.retriever.search(query, k=TOP_K)
+        events = [{"type": "retrieve", "query": query, "hits": [{"id": h["id"], "score": h["score"]} for h in hits]}]
+        # Guardrail (b) on retrieved text: a doc that says "ignore previous instructions" is an attack
+        # on the model too (indirect prompt injection). Such chunks never reach a prompt.
+        clean = []
+        for h in hits:
+            if pattern := guardrails.detect_injection(h["text"]):
+                events.append({"type": "injection_in_chunk", "chunk_id": h["id"], "pattern": pattern})
+            else:
+                clean.append(h)
         known = {c["id"] for c in state.get("chunks", [])}
-        chunks = state.get("chunks", []) + [h for h in hits if h["id"] not in known]
-        return {"chunks": chunks,
-                "events": [{"type": "retrieve", "query": query,
-                            "hits": [{"id": h["id"], "score": h["score"]} for h in hits]}]}
+        chunks = state.get("chunks", []) + [h for h in clean if h["id"] not in known]
+        return {"chunks": chunks, "events": events}
 
     def call_tool(self, state: State) -> dict:
         name, args = state["plan"]["tool"], state["plan"].get("args", {})
@@ -181,8 +213,13 @@ class Copilot:
 
     def answer(self, state: State) -> dict:
         context, ledger = self._context(state)
-        if not state.get("chunks") and not state.get("tool_calls"):
-            return {"draft": REFUSAL}  # nothing gathered: no point asking the model
+        if not state.get("tool_calls"):
+            # Guardrail (a): with no ledger data, the answer can only come from the docs. If even the best
+            # chunk scores below MIN_SCORE, the docs are not about this question: refuse without a model call.
+            top = max((c["score"] for c in state.get("chunks", [])), default=0.0)
+            if top < self.min_score:
+                return {"draft": REFUSAL, "events": [{"type": "low_retrieval_score", "top_score": top,
+                                                      "min_score": self.min_score}]}
         text, call = self._generate("answer", ANSWER_PROMPT.format(
             refusal=REFUSAL, context=context, ledger=ledger, question=state["question"]), max_tokens=300)
         return {"draft": text, "llm_calls": [call]}
@@ -191,7 +228,8 @@ class Copilot:
         draft, chunks, calls = state["draft"], state.get("chunks", []), state.get("tool_calls", [])
         tools_used = [c["name"] for c in calls]
         if REFUSAL.rstrip(".").lower() in draft.lower():
-            return self._refuse("model_said_no_support", tools_used)
+            low = any(e["type"] == "low_retrieval_score" for e in state.get("events", []))
+            return self._refuse("low_retrieval_score" if low else "model_said_no_support", tools_used)
 
         # 1. Citations: map [n] back to chunks. Numbers the model invented (no such chunk) are dropped.
         cited = [int(n) for group in re.findall(r"\[(\d+(?:\s*,\s*\d+)*)\]", draft)
@@ -200,8 +238,8 @@ class Copilot:
         events = [{"type": "invalid_citation", "numbers": sorted(set(cited) - set(valid))}] \
             if len(valid) != len(cited) else []
         citations = list(dict.fromkeys(chunks[n - 1]["source"] for n in valid))  # unique, in order
-        grounded_by_tool = any(c["ok"] for c in calls)
-        if not citations and not grounded_by_tool:
+        # A tool result is evidence even when it is an error: "the ledger is unreachable" is a true answer.
+        if not citations and not calls:
             return self._refuse("no_valid_citation", tools_used, events)
 
         # 2. A second, short model call checks the answer against the same evidence.
@@ -212,6 +250,18 @@ class Copilot:
             return {**self._refuse("verifier_unsupported", tools_used, events), "llm_calls": [call]}
         return {"answer": draft, "citations": citations, "tools_used": tools_used, "refused": False,
                 "reason": None, "events": events, "llm_calls": [call]}
+
+    def finalize(self, state: State) -> dict:
+        """Guardrail (d): the result must fit the CopilotAnswer schema. If it doesn't, refuse."""
+        fields = {k: state.get(k) for k in ("answer", "citations", "tools_used", "refused", "reason")}
+        fields = {**fields, "citations": fields["citations"] or [], "tools_used": fields["tools_used"] or []}
+        try:
+            return {"output": CopilotAnswer.model_validate(fields).model_dump()}
+        except ValidationError as e:
+            safe = CopilotAnswer(answer=REFUSAL, citations=[], tools_used=fields["tools_used"], refused=True,
+                                 reason="invalid_output")
+            return {"output": safe.model_dump(),
+                    "events": [{"type": "invalid_output", "errors": [err["msg"] for err in e.errors()]}]}
 
     # ---------- helpers ----------
     def _refuse(self, reason: str, tools_used: list[str], events: list | None = None) -> dict:
@@ -239,7 +289,7 @@ class Copilot:
     def _context(self, state: State) -> tuple[str, str]:
         context = "\n\n".join(f"[{n}] (source: {c['source']})\n{c['text']}"
                               for n, c in enumerate(state.get("chunks", []), start=1)) or "(none)"
-        # ensure_ascii=False keeps "₹" as is; escaped as "\\u20b9" the model can't match it to the answer.
+        # ensure_ascii=False keeps "₹" as is; escaped as "\u20b9" the model can't match it to the answer.
         ledger = "\n".join(f"[T{n}] {c['name']}({json.dumps(c['args'])}): "
                            f"{json.dumps(c['result'], ensure_ascii=False)}"
                            for n, c in enumerate(state.get("tool_calls", []), start=1)) or "(none)"

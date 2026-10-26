@@ -43,9 +43,10 @@ def corpus(tmp_path):
 
 @pytest.fixture
 def make_copilot(corpus):
-    """make_copilot(replies) -> (copilot, llm, tools). `replies` scripts the FakeLLM per TASK."""
-    def make(replies=None):
+    """make_copilot(replies) -> (copilot, llm, tools). `replies` scripts the FakeLLM per TASK.
+    min_score defaults to 0: fake hash embeddings don't score like nomic-embed-text."""
+    def make(replies=None, min_score=0.0):
         llm, tools = FakeLLM(replies), FakeTools()
         retriever = Retriever(llm, docs_dir=corpus / "docs", docs=list(DOCS), cache_dir=corpus / "index")
-        return Copilot(llm, retriever=retriever, tool_fn=tools), llm, tools
+        return Copilot(llm, retriever=retriever, tool_fn=tools, min_score=min_score), llm, tools
     return make

@@ -3,7 +3,8 @@
 
 import json
 
-from copilot.agent import MAX_STEPS, REFUSAL
+from copilot.agent import MAX_STEPS
+from copilot.schemas import REFUSAL
 
 
 def plan(**kw):
@@ -16,7 +17,10 @@ def test_docs_question_retrieves_then_answers_with_a_citation(make_copilot):
     assert not r["refused"]
     assert r["citations"] == ["runbook.md § Recovery steps"]
     assert tools.calls == []
-    assert [t["node"] for t in r["timings"]] == ["plan", "retrieve", "plan", "answer", "verify"]
+    assert [t["node"] for t in r["timings"]] == ["guard_input", "plan", "retrieve", "plan", "answer", "verify",
+                                                 "finalize"]
+    assert r["output"] == {"answer": r["answer"], "citations": ["runbook.md § Recovery steps"], "tools_used": [],
+                           "refused": False, "reason": None}
 
 
 def test_live_data_question_calls_the_tool_with_the_right_argument(make_copilot):
@@ -52,7 +56,7 @@ def test_invalid_planner_output_falls_back_to_retrieval(make_copilot):
     cp, llm, tools = make_copilot({"plan": ["this is not json"]})
     r = cp.ask("What does double-entry mean?")
     assert any(e["type"] == "invalid_plan" for e in r["events"])
-    assert r["timings"][1]["node"] == "retrieve"
+    assert [t["node"] for t in r["timings"]][1:3] == ["plan", "retrieve"]
 
 
 def test_unknown_tool_is_never_called(make_copilot):
