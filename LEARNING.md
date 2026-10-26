@@ -134,7 +134,7 @@
 - Recorded run (`results/eval_run.txt`, git `b800d78`): answer accuracy 21/25, citation accuracy 12/15, false refusals 2/25. **Caveat:** the same 40 questions
   were used for dev run 1, so they are not perfectly unseen. The fixes were bug fixes, not prompt tuning toward specific questions.
 - The 4 remaining failures, kept as they are:
-  - d06: a false refusal, top score 0.649 < 0.66. The threshold trade-off is real.
+  - d06: a false refusal, top score 0.651 < 0.66. The threshold trade-off is real.
   - d09: retrieval missed the `txn_id` chunk, because the 25-question interview section is one huge section.
   - d14: a **keyword-match false negative**. The answer "one transfer and 20 identical responses" is right, but it lacks the keyword "once".
   - t06: the 7B model said "I don't know" even though `get_stats` returned `healthy: true`.
@@ -149,5 +149,7 @@
 
 **Break it to learn it**
 1. Revert `chunk_markdown` to plain heading names (no parent path, no unique suffix) and rerun the eval. Watch d15 (the runbook recovery steps) start failing again.
-2. Set `MIN_SCORE = 0.70` and rerun. Correct refusals stay 8/8, but false refusals jump, because several real doc questions score between 0.66 and 0.70.
+2. Set `MIN_SCORE = 0.75` and rerun. In the recorded traces, 8 correctly answered doc questions had a top score between 0.716 and 0.749,
+   so all of them would now be refused. The other way round: "What is the RBI's current repo rate?" scored **0.661**, just above 0.66, and was refused
+   by the *model*, not the threshold. No single layer is enough.
 3. Replace keyword matching with "always correct if not refused". Answer accuracy rises, which shows why the scoring method must be stated next to the number.
