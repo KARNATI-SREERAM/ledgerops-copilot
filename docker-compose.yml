@@ -1,0 +1,46 @@
+# Runs the copilot with one command: `docker compose up --build`
+#   api : FastAPI POST /ask on http://localhost:8002
+#   ui  : Streamlit chat on   http://localhost:8501
+# Needs two things running on the Mac first:
+#   - Ollama with qwen2.5:7b and nomic-embed-text pulled (`ollama serve`)
+#   - the ledger: `docker compose up -d` in ../project2-payment-ledger (API on localhost:8001)
+# Both are reached through host.docker.internal, the Mac as seen from inside a container.
+
+services:
+  api:
+    build: .
+    environment:
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      LEDGER_URL: ${LEDGER_URL:-http://host.docker.internal:8001}
+      COPILOT_FAKE_LLM: ${COPILOT_FAKE_LLM:-0}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Docker Desktop has this name already; Linux needs this line
+    ports:
+      - "8002:8000"  # 8000 = Project 1, 8001 = Project 2
+    volumes:
+      - index:/app/index           # embeddings cache: built once (~10 s), reused on restarts
+      - ./traces:/app/traces       # one JSON trace per request, readable from the Mac
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s  # the first start embeds every doc chunk before /health answers
+    restart: unless-stopped
+
+  ui:
+    build: .
+    command: ["streamlit", "run", "ui.py", "--server.port", "8501", "--server.address", "0.0.0.0",
+              "--server.headless", "true", "--browser.gatherUsageStats", "false"]
+    environment:
+      API_URL: http://api:8000  # service name: containers in one compose project share a network
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  index:

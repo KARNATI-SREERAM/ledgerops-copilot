@@ -1,0 +1,2 @@
+# The Streamlit chat page (ui.py). Kept separate: CI and the API don't need it.
+streamlit==1.52.2

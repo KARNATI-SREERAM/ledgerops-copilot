@@ -1,0 +1,27 @@
+# CI: on every push and pull request, lint with ruff and run pytest with the FAKE LLM.
+# No Ollama, no ledger and no GPU in CI: the tests use FakeLLM, fake embeddings and fake tools,
+# so they are fast and deterministic. The real-model numbers come from evals/run_evals.py, run locally.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    env:
+      COPILOT_FAKE_LLM: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"        # same Python as the Docker image
+          cache: pip
+          cache-dependency-path: "requirements*.txt"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -v
