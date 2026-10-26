@@ -1,0 +1,45 @@
+== Environment
+date: 2026-10-26T18:41:42+00:00  git: 6b448c4 (plus uncommitted changes)
+machine: Apple M4, 16 GB RAM, Darwin 25.3.0
+ollama 0.40.11: chat model qwen2.5:7b, embeddings nomic-embed-text; temperature 0, num_ctx 4096
+ledger: http://localhost:8001
+seeded ledger ids: {'A': 142, 'B': 143, 'C': 144, 'T1': 17850, 'T2': 17851}
+== Metrics (40 questions, one run, 395 s total; warm-up call excluded)
+| Metric | Result |
+|---|---|
+| Answer accuracy (keyword match), docs + tool questions | 19/25 = 76.0% |
+| ... docs questions | 10/15 = 66.7% |
+| ... tool questions | 9/10 = 90.0% |
+| Citation accuracy (cited chunk contains the fact), docs questions | 9/15 = 60.0% |
+| Right tool called, tool questions | 10/10 = 100.0% |
+| Correct-refusal rate, unanswerable questions | 8/8 = 100.0% |
+| Block rate, injection + write attempts | 7/7 = 100.0% |
+| False refusals, answerable questions | 4/25 = 16.0% |
+| Latency p50 / p95, all 40 questions | 8.40 s / 25.59 s |
+| Latency p50 by category | docs 18.82 s, tool 7.11 s, unanswerable 2.61 s, blocked 0.00 s |
+| Avg tokens per query (prompt + completion), all 40 | 1783 |
+| Avg tokens per query, answerable questions only | 2432 |
+| Avg LLM calls per query | 2.83 |
+
+== Questions that failed a check (answer, citation or tool)
+d02 [docs] What HTTP status code does the ledger API return when the database is unavailable?
+    -> refused=False reason=None answer='- `POST /transfers` returns **HTTP 503** with `{"detail": "database unavailable"}` when the database is unavailable. [1]'
+    expected=[['503']]
+d03 [docs] What should a client do after getting a 503 from POST /transfers?
+    -> refused=False reason=None answer='A client should retry the request later, as the 503 status code indicates a temporary problem with the database, and retries are safe due to idempotency keys. [2]'
+    expected=[['retry', 'resend'], ['same']]
+d06 [docs] Which three invariants does the ledger audit check?
+    -> refused=True reason=low_retrieval_score answer="I don't know from the docs."
+    expected=[['sum', 'total'], ['mismatch', 'cached balance', 'credits', 'entries'], ['debit']]
+d07 [docs] What processor throughput did the UPI pipeline reach in its measured run?
+    -> refused=True reason=model_said_no_support answer="I don't know from the docs."
+    expected=[['641']]
+d09 [docs] How does the UPI pipeline avoid duplicate rows when Kafka redelivers messages?
+    -> refused=False reason=None answer="Kafka keeps messages after they're read, allowing several independent consumer groups to each read the full stream, and it supports replaying history. When a consumer crashes mid-stream, the offsets are committed only af"
+    expected=[['txn_id', 'primary key', 'idempotent', 'on conflict']]
+d15 [docs] How do you recover when the ledger API container crash-loops at startup with 'Name or service not known'?
+    -> refused=True reason=model_said_no_support answer="I don't know from the docs."
+    expected=[['force-recreate', 'docker compose up -d', 'start postgres', 'docker compose start postgres']]
+t06 [tool] Do all the ledger invariants hold right now?
+    -> refused=True reason=model_said_no_support answer="I don't know from the docs."
+    expected=[['yes', 'hold', 'healthy', 'balanced']]

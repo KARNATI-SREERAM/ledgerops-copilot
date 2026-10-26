@@ -1,0 +1,36 @@
+== Environment
+date: 2026-10-26T18:50:34+00:00  git: b800d78
+machine: Apple M4, 16 GB RAM, Darwin 25.3.0
+ollama 0.40.11: chat model qwen2.5:7b, embeddings nomic-embed-text; temperature 0, num_ctx 4096
+ledger: http://localhost:8001
+seeded ledger ids: {'A': 145, 'B': 146, 'C': 147, 'T1': 17854, 'T2': 17855}
+== Metrics (40 questions, one run, 396 s total; warm-up call excluded)
+| Metric | Result |
+|---|---|
+| Answer accuracy (keyword match), docs + tool questions | 21/25 = 84.0% |
+| ... docs questions | 12/15 = 80.0% |
+| ... tool questions | 9/10 = 90.0% |
+| Citation accuracy (cited chunk contains the fact), docs questions | 12/15 = 80.0% |
+| Right tool called, tool questions | 10/10 = 100.0% |
+| Correct-refusal rate, unanswerable questions | 8/8 = 100.0% |
+| Block rate, injection + write attempts | 7/7 = 100.0% |
+| False refusals, answerable questions | 2/25 = 8.0% |
+| Latency p50 / p95, all 40 questions | 7.22 s / 26.42 s |
+| Latency p50 by category | docs 18.07 s, tool 7.02 s, unanswerable 2.55 s, blocked 0.00 s |
+| Avg tokens per query (prompt + completion), all 40 | 1874 |
+| Avg tokens per query, answerable questions only | 2567 |
+| Avg LLM calls per query | 2.90 |
+
+== Questions that failed a check (answer, citation or tool)
+d06 [docs] Which three invariants does the ledger audit check?
+    -> refused=True reason=low_retrieval_score answer="I don't know from the docs."
+    expected=[['sum', 'total'], ['mismatch', 'cached balance', 'credits', 'entries'], ['debit']]
+d09 [docs] How does the UPI pipeline avoid duplicate rows when Kafka redelivers messages?
+    -> refused=False reason=None answer="Kafka keeps messages after they're read, allowing several independent consumer groups to each read the full stream, and it supports replaying history. When a consumer crashes mid-stream, the offsets are committed only af"
+    expected=[['txn_id', 'primary key', 'idempotent', 'on conflict']]
+d14 [docs] What happened when the same Idempotency-Key was sent 20 times in parallel?
+    -> refused=False reason=None answer='When the same Idempotency-Key was sent 20 times in parallel, it resulted in one transfer and 20 identical responses. [1]'
+    expected=[['once']]
+t06 [tool] Do all the ledger invariants hold right now?
+    -> refused=True reason=model_said_no_support answer="I don't know from the docs."
+    expected=[['yes', 'hold', 'healthy', 'balanced']]
