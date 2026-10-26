@@ -1,0 +1,16 @@
+# Tool config only (this project is not a pip-installable package).
+# ruff = linter, pytest = test runner; CI runs both.
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = [".", "tests"]
+
+[tool.ruff.lint]
+# E/W = style errors, F = real bugs (unused imports, undefined names), I = import order
+select = ["E", "W", "F", "I"]
+
+[tool.pytest.ini_options]
+# Lets tests do `import rag_minimal` / `from copilot import ...` from the project root.
+pythonpath = ["."]
+testpaths = ["tests"]

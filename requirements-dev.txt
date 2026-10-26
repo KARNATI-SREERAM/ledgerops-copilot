@@ -1,0 +1,4 @@
+# Everything CI needs: the runtime packages plus the test runner and linter. No Ollama needed.
+-r requirements.txt
+pytest==9.1.1
+ruff==0.17.2

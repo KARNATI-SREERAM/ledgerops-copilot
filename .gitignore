@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+# Rebuilt automatically from docs/ (cached embeddings + FAISS index)
+index/
+# Per-request traces from local runs (the recorded eval run's traces live in results/)
+traces/

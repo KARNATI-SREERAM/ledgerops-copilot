@@ -1,0 +1,12 @@
+$ .venv/bin/python rag_minimal.py "How does the ledger recover when Postgres crashes during transfers?"   (2026-10-26T18:24:16Z, qwen2.5:7b + nomic-embed-text)
+Q: How does the ledger recover when Postgres crashes during transfers?
+
+A: The transfer is one transaction, and nothing commits until the last line. If Postgres dies before COMMIT, it discards the whole transaction on restart (WAL recovery), *including the idempotency-key claim*, so there is never a half-transfer. The API returns 503 (`OperationalError` handler). The client retries with the same key, and once Postgres is back, `pool_pre_ping` reconnects and the retry runs as a first attempt. If Postgres died after COMMIT but before the response reached the client, the retry finds the key and replays the stored response. [2]
+
+Sources:
+  [1] runbook.md § Recovery steps  (cosine 0.822)
+  [2] project2/LEARNING.md § 5. 25 interview questions, with model answers from this code  (cosine 0.796)
+  [3] runbook.md § Recovery steps  (cosine 0.781)
+  [4] project2/LEARNING.md § 4. Ten "break it to learn it" exercises  (cosine 0.774)
+
+(189 chunks indexed)
