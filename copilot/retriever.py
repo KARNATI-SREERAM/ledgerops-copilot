@@ -20,8 +20,10 @@ class Retriever:
         texts = {name: (docs_dir / name).read_text(encoding="utf-8") for name in docs}
         self.chunks = [c for name, text in texts.items() for c in chunk_markdown(text, name)]
 
-        # The cache key changes if any doc's text or the embedding model changes -> automatic rebuild.
-        key = hashlib.sha256((llm.embed_model + "".join(texts.values())).encode()).hexdigest()[:16]
+        # The cache key is a hash of the embedding model + every CHUNK's text, so changing a doc, the chunk
+        # size or the chunking code rebuilds the index. (A first version hashed only the raw docs: after a
+        # chunking change it silently kept serving the old vectors.)
+        key = hashlib.sha256((llm.embed_model + "".join(c["text"] for c in self.chunks)).encode()).hexdigest()[:16]
         cache = cache_dir / f"vectors-{key}.npy"
         if cache.exists():
             vectors = np.load(cache)

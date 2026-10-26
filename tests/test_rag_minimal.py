@@ -35,9 +35,22 @@ def test_chunks_keep_file_and_section_and_ignore_code_comments():
     chunks = rag_minimal.chunk_markdown(DOC, "project2/LEARNING.md")
     sources = [c["source"] for c in chunks]
     assert sources == ["project2/LEARNING.md § Title", "project2/LEARNING.md § Idempotency",
-                       "project2/LEARNING.md § Child"]  # "Empty parent" has no text of its own
+                       "project2/LEARNING.md § Empty parent > Child"]  # "Empty parent" has no text of its own
     assert "# this is a shell comment" in chunks[1]["text"]
     assert chunks[1]["id"] == "project2/LEARNING.md#idempotency-0"
+
+
+def test_same_named_sections_get_unique_ids_and_their_parent_in_the_name():
+    doc = "# Runbook\n## Crash\n### Recovery steps\nRestart postgres.\n## 429\n### Recovery steps\nWait.\n"
+    chunks = rag_minimal.chunk_markdown(doc, "runbook.md")
+    assert [c["source"] for c in chunks] == ["runbook.md § Crash > Recovery steps", "runbook.md § 429 > Recovery steps"]
+    assert len({c["id"] for c in chunks}) == 2
+
+
+def test_real_corpus_chunk_ids_are_unique():
+    ids = [c["id"] for name in rag_minimal.DOCS
+           for c in rag_minimal.chunk_markdown((rag_minimal.DOCS_DIR / name).read_text(encoding="utf-8"), name)]
+    assert len(ids) == len(set(ids))
 
 
 def test_long_sections_are_windowed_with_overlap():

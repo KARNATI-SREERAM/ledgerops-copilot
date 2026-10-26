@@ -84,3 +84,13 @@ def test_retriever_ranks_and_caches(corpus):
     llm.embed = lambda texts: calls.append(len(texts)) or FakeLLM().embed(texts)
     Retriever(llm, docs_dir=corpus / "docs", docs=["runbook.md", "project2/LEARNING.md"], cache_dir=corpus / "index")
     assert calls == []  # second build loaded the cached vectors instead of re-embedding
+
+
+def test_changing_the_chunking_rebuilds_the_cache(corpus, monkeypatch):
+    import rag_minimal
+    llm = FakeLLM()
+    docs = ["runbook.md"]
+    Retriever(llm, docs_dir=corpus / "docs", docs=docs, cache_dir=corpus / "index")
+    monkeypatch.setattr(rag_minimal, "CHUNK_SIZE", 30)  # same docs, different chunks
+    Retriever(llm, docs_dir=corpus / "docs", docs=docs, cache_dir=corpus / "index")
+    assert len(list((corpus / "index").glob("vectors-*.npy"))) == 2

@@ -14,6 +14,7 @@ import json
 import operator
 import re
 import time
+from pathlib import Path
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -23,6 +24,7 @@ from copilot import guardrails
 from copilot.retriever import Retriever
 from copilot.schemas import REFUSAL, CopilotAnswer, Plan
 from copilot.tools import TOOL_DESCRIPTIONS, TOOLS, call_tool
+from copilot.trace import build_trace, write_trace
 
 MAX_STEPS = 5
 TOP_K = 4
@@ -36,6 +38,7 @@ class State(TypedDict, total=False):
     draft: str                 # the model's answer before verification
     answer: str
     citations: list[str]       # "file § section" of every chunk the answer cites
+    cited_chunk_ids: list[str] # the same, as chunk ids (the eval checks the cited text holds the fact)
     tools_used: list[str]
     refused: bool
     reason: str | None
@@ -47,6 +50,7 @@ class State(TypedDict, total=False):
     timings: Annotated[list[dict], operator.add]     # node name + milliseconds
     output: dict               # the validated CopilotAnswer: the only thing the API returns
     latency_ms: float
+    trace: dict
 
 
 PLAN_PROMPT = """TASK: plan
@@ -107,8 +111,9 @@ Reply with one word: yes or no."""
 
 class Copilot:
     def __init__(self, llm, retriever: Retriever | None = None, tool_fn=call_tool,
-                 min_score: float = guardrails.MIN_SCORE):
+                 min_score: float = guardrails.MIN_SCORE, trace_path: Path | None = None):
         self.llm = llm
+        self.trace_path = trace_path  # where to append one JSON trace line per request (None = don't)
         # Calibrated for nomic-embed-text. Tests pass their own, because fake embeddings score differently.
         self.min_score = min_score
         self.retriever = retriever or Retriever(llm)
@@ -238,6 +243,7 @@ class Copilot:
         events = [{"type": "invalid_citation", "numbers": sorted(set(cited) - set(valid))}] \
             if len(valid) != len(cited) else []
         citations = list(dict.fromkeys(chunks[n - 1]["source"] for n in valid))  # unique, in order
+        cited_ids = list(dict.fromkeys(chunks[n - 1]["id"] for n in valid))
         # A tool result is evidence even when it is an error: "the ledger is unreachable" is a true answer.
         if not citations and not calls:
             return self._refuse("no_valid_citation", tools_used, events)
@@ -248,8 +254,8 @@ class Copilot:
         text, call = self._generate("verify", VERIFY_PROMPT.format(evidence=evidence, answer=draft), max_tokens=3)
         if not text.lower().startswith("yes"):
             return {**self._refuse("verifier_unsupported", tools_used, events), "llm_calls": [call]}
-        return {"answer": draft, "citations": citations, "tools_used": tools_used, "refused": False,
-                "reason": None, "events": events, "llm_calls": [call]}
+        return {"answer": draft, "citations": citations, "cited_chunk_ids": cited_ids, "tools_used": tools_used,
+                "refused": False, "reason": None, "events": events, "llm_calls": [call]}
 
     def finalize(self, state: State) -> dict:
         """Guardrail (d): the result must fit the CopilotAnswer schema. If it doesn't, refuse."""
@@ -301,4 +307,7 @@ class Copilot:
         # recursion_limit: LangGraph's own cap on node executions; our MAX_STEPS triggers well before it.
         final = self.graph.invoke({"question": question}, {"recursion_limit": 25})
         final["latency_ms"] = round((time.perf_counter() - start) * 1000, 1)
+        final["trace"] = build_trace(final)
+        if self.trace_path:
+            write_trace(final["trace"], self.trace_path)
         return final

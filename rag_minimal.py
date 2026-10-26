@@ -32,29 +32,38 @@ HEADING = re.compile(r"^(#{1,6})\s+(.*)")
 
 
 def chunk_markdown(text: str, source: str) -> list[dict]:
-    """Split one markdown file into chunks. Each chunk remembers its file and section heading."""
-    sections, heading, lines, in_code = [], "(top)", [], False
+    """Split one markdown file into chunks. Each chunk remembers its file and section heading path."""
+    sections, stack, lines, in_code = [], [], [], False  # stack: (level, title) of the headings we are under
     for line in text.splitlines():
         if line.startswith("```"):
             in_code = not in_code  # a "# comment" inside a code block is not a heading
         match = None if in_code else HEADING.match(line)
         if match:
-            sections.append((heading, "\n".join(lines)))
-            heading, lines = match.group(2).strip(), []
+            sections.append((section_name(stack), "\n".join(lines)))
+            level = len(match.group(1))
+            while stack and stack[-1][0] >= level:
+                stack.pop()  # a new "##" closes the previous "##" and everything under it
+            stack.append((level, match.group(2).strip()))
+            lines = []
         else:
             lines.append(line)
-    sections.append((heading, "\n".join(lines)))
+    sections.append((section_name(stack), "\n".join(lines)))
 
-    chunks = []
+    chunks, seen = [], {}
     step = CHUNK_SIZE - CHUNK_OVERLAP
     for heading, body in sections:
         body = body.strip()
         if not body:
             continue  # a heading followed straight by a sub-heading has no text of its own
+        # Ids must be unique: two sections with the same name would otherwise collide, and one would be lost.
+        base = slug(heading)
+        seen[base] = seen.get(base, 0) + 1
+        if seen[base] > 1:
+            base = f"{base}-{seen[base]}"
         for n, start in enumerate(range(0, len(body), step)):
             piece = body[start:start + CHUNK_SIZE]
             chunks.append({
-                "id": f"{source}#{slug(heading)}-{n}",
+                "id": f"{source}#{base}-{n}",
                 "source": f"{source} § {heading}",  # what a citation shows: file plus section
                 # The heading is embedded too, so "Idempotency" chunks match "idempotency" questions.
                 "text": f"{heading}\n{piece}",
@@ -62,6 +71,13 @@ def chunk_markdown(text: str, source: str) -> list[dict]:
             if start + CHUNK_SIZE >= len(body):
                 break  # this window already reached the end of the section
     return chunks
+
+
+def section_name(stack: list[tuple[int, str]]) -> str:
+    """'Incident: database crash > Recovery steps': the parent heading tells same-named sections apart.
+    The file's '#' title is left out (every section is under it) unless it is the only heading."""
+    titles = [title for level, title in stack if level > 1] or [title for _, title in stack]
+    return " > ".join(titles) or "(top)"
 
 
 def slug(heading: str) -> str:

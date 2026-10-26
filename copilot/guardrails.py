@@ -10,7 +10,7 @@
 import re
 
 # Calibrated with scripts/calibrate_threshold.py on questions that are NOT in the eval set
-# (results/calibration.txt): on-topic min 0.678, off-topic max 0.654, so 0.66 sits between them.
+# (results/calibration.txt): on-topic min 0.678, off-topic max 0.657, so 0.66 sits between them.
 MIN_SCORE = 0.66
 
 INJECTION_PATTERNS = [

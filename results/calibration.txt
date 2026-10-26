@@ -1,21 +1,21 @@
-$ .venv/bin/python scripts/calibrate_threshold.py   (2026-10-26T18:35:13Z, nomic-embed-text)
+$ .venv/bin/python scripts/calibrate_threshold.py   (2026-10-26T18:49:46Z, nomic-embed-text, after the heading-path chunking fix)
 ON-TOPIC  0.678  Which port does the ledger API listen on?  ->  project2/LEARNING.md § 1. Architecture and the life of one transfer
-ON-TOPIC  0.714  How are opening balances recorded?  ->  project2/LEARNING.md § Double-entry accounting
+ON-TOPIC  0.712  How are opening balances recorded?  ->  project2/LEARNING.md § 3. Core concepts, tied to the code > Double-entry accounting
 ON-TOPIC  0.742  What does the Kafka consumer do with duplicate messages?  ->  project1/LEARNING.md § 5. 25 interview questions, with model answers from this code
 ON-TOPIC  0.778  Which features does the fraud model use?  ->  project1/LEARNING.md § 5. 25 interview questions, with model answers from this code
-ON-TOPIC  0.789  What happens when the connection pool is exhausted?  ->  project2/LEARNING.md § Connection pooling and failure handling
+ON-TOPIC  0.779  What happens when the connection pool is exhausted?  ->  project2/LEARNING.md § 3. Core concepts, tied to the code > Connection pooling and failure handling
 ON-TOPIC  0.728  How is the statement's running balance computed?  ->  project2/LEARNING.md § 5. 25 interview questions, with model answers from this code
 ON-TOPIC  0.700  What does the ledger return for an unknown account?  ->  project2/LEARNING.md § 1. Architecture and the life of one transfer
 ON-TOPIC  0.750  Why is money stored as integer paise?  ->  project2/LEARNING.md § 5. 25 interview questions, with model answers from this code
-ON-TOPIC  min=0.678 max=0.789
+ON-TOPIC  min=0.678 max=0.779
 
-OFF-TOPIC 0.495  What is the capital of Japan?  ->  project2/LEARNING.md § Phase 6: Web front end (server-rendered, Jinja2)
-OFF-TOPIC 0.532  Who won the cricket world cup in 2011?  ->  project2/LEARNING.md § Bonus exercises: the web front end (Phase 6)
-OFF-TOPIC 0.654  Write a poem about the monsoon.  ->  project2/LEARNING.md § Bonus exercises: the web front end (Phase 6)
-OFF-TOPIC 0.573  What is the boiling point of water in Kelvin?  ->  project2/LEARNING.md § 6. Limitations and next steps
-OFF-TOPIC 0.555  How do I bake sourdough bread?  ->  project2/LEARNING.md § LEARNING.md: Project 2 study guide (payment ledger)
+OFF-TOPIC 0.489  What is the capital of Japan?  ->  project2/LEARNING.md § 3. Core concepts, tied to the code > The web front end (Phase 6)
+OFF-TOPIC 0.535  Who won the cricket world cup in 2011?  ->  project2/LEARNING.md § 4. Ten "break it to learn it" exercises > Bonus exercises: the web front end (Phase 6)
+OFF-TOPIC 0.657  Write a poem about the monsoon.  ->  project2/LEARNING.md § 4. Ten "break it to learn it" exercises > Bonus exercises: the web front end (Phase 6)
+OFF-TOPIC 0.577  What is the boiling point of water in Kelvin?  ->  project2/LEARNING.md § 3. Core concepts, tied to the code > The web front end (Phase 6)
+OFF-TOPIC 0.561  How do I bake sourdough bread?  ->  project2/LEARNING.md § 4. Ten "break it to learn it" exercises > Bonus exercises: the web front end (Phase 6)
 OFF-TOPIC 0.653  What is the current RBI repo rate?  ->  project2/LEARNING.md § 1. Architecture and the life of one transfer
-OFF-TOPIC 0.561  Translate 'good morning' into French.  ->  project1/LEARNING.md § At-least-once delivery, and why dedup is needed
+OFF-TOPIC 0.569  Translate 'good morning' into French.  ->  project2/LEARNING.md § 4. Ten "break it to learn it" exercises > Bonus exercises: the web front end (Phase 6)
 OFF-TOPIC 0.509  What's the best smartphone to buy this year?  ->  project1/LEARNING.md § 8. Resume bullets (only numbers from the run above)
-OFF-TOPIC min=0.495 max=0.654
+OFF-TOPIC min=0.489 max=0.657
 
