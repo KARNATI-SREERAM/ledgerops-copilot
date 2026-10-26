@@ -32,3 +32,45 @@
    the model was trained with those prefixes.
 3. Delete the line "If the context does not contain the answer, reply exactly…" and ask "What is NPCI's head office address?".
    Without the rule, the model is far more likely to answer from its own memory, which is a hallucination as far as *your* docs are concerned.
+
+### Phase 2: LangGraph agent with read-only ledger tools
+
+**What was built**
+- project2: a new read-only `GET /stats` (the 3 invariants, `healthy`, counts). `ledger.stats()` is now shared by the endpoint and
+  `scripts/check_ledger.py`. A new `tests/test_stats.py` was added, and all 59 project2 tests pass. The commit was pushed and project2's CI is green.
+- `copilot/llm.py`: the one LLM interface. `OllamaLLM` (generate + embed over HTTP, real token counts from Ollama) and `FakeLLM`
+  (scripted by the `TASK:` line every prompt starts with). `get_llm()` picks one from `COPILOT_FAKE_LLM`.
+- `copilot/retriever.py`: FAISS `IndexFlatIP` over normalized vectors (inner product = cosine). It reuses `chunk_markdown()` from Phase 1,
+  and embeddings are cached in `index/`, keyed by a hash of the docs + the embedding model.
+- `copilot/tools.py`: `get_health`, `get_stats`, `get_account`, `get_transfer`, `get_statement`. The only HTTP helper is `_get()`.
+  Every `*_paise` field gets a `*_rupees` twin computed in Python.
+- `copilot/agent.py`: graph `plan → (retrieve | call_tool) → plan … → answer → verify`. `MAX_STEPS = 5`, a repeated-action loop breaker,
+  and `recursion_limit=25`. `verify` maps `[n]` citations back to chunks, drops invented numbers, and asks the model a one-word grounding question.
+- `python -m copilot "question"` prints the full result state as JSON.
+- Tests: 24 new ones (agent routing, step cap, loop breaker, invalid plan JSON, unknown tool, invented citations, verifier "no",
+  tools only send GET, ₹ formatting, errors as data, retriever ranking + cache).
+
+**What went wrong and was fixed (real debugging)**
+- The verifier said "no" to a correct answer ("The balance of account 2 is ₹999,493.50 [T1]"). Two causes:
+  the prompt showed an empty `Doc context: (none)` section and never explained what `[T1]` means. I tried two prompt
+  versions on one correct and one deliberately wrong answer. Both judged correctly once the evidence was shown alone and the markers were explained.
+  `json.dumps` was also escaping ₹ as `\u20b9` (now `ensure_ascii=False`).
+- The 7B planner often proposes the *same* retrieval or tool call again instead of "answer". The loop breaker turns that into "answer",
+  which is why most questions take 2 plan steps.
+
+**Key concepts**
+- **Agent vs chain.** A chain is a fixed sequence (Phase 1: retrieve → prompt → answer). Here the model's JSON decision picks the next node
+  (`add_conditional_edges("plan", ...)`), so the path depends on the question.
+- **LangGraph state and reducers.** Nodes return only the keys they change. `Annotated[list, operator.add]` makes `tool_calls`, `events`,
+  `llm_calls` and `timings` *append* across loop iterations instead of being overwritten.
+- **Tool calling with untrusted output.** The plan is validated by pydantic (`Plan`), the tool name by an allowlist, and the arguments by `_positive_int`.
+  Each failure has a safe default instead of a crash.
+- **Don't let the model do arithmetic.** Rupee strings are computed in code, and the prompt says to copy them.
+
+**Break it to learn it**
+1. Set `MAX_STEPS = 1`. Every question now answers after a single decision. A question needing a tool still works
+   (plan → tool → forced answer), but one needing a tool *and* docs loses the second source.
+2. Delete the `_already_done` check in `plan()`. Ask "What is the balance of account 2?" and count the `get_account` calls in `tool_calls`:
+   the 7B planner calls it again until `MAX_STEPS` stops it, making the request several seconds slower.
+3. Change `ensure_ascii=False` back to the default in `_context()`. Ask for an account balance: the verifier sees `\u20b9…` but the answer says `₹…`,
+   and it starts refusing correct answers.

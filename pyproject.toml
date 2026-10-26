@@ -2,7 +2,7 @@
 # ruff = linter, pytest = test runner; CI runs both.
 
 [tool.ruff]
-line-length = 110
+line-length = 120  # prompts are long strings; wrapping them hurts readability more than it helps
 target-version = "py312"
 src = [".", "tests"]
 
