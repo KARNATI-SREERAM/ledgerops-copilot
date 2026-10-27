@@ -1,4 +1,5 @@
 # Everything CI needs: the runtime packages plus the test runner and linter. No Ollama needed.
 -r requirements.txt
+-r requirements-ui.txt  # streamlit, for the headless UI test (tests/test_ui.py)
 pytest==9.1.1
 ruff==0.17.2

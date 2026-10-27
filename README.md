@@ -10,7 +10,7 @@
 
 ```mermaid
 flowchart LR
-    U[Streamlit chat<br/>ui.py :8501] -->|POST /ask| API[FastAPI<br/>api.py :8002]
+    U[Streamlit demo<br/>ui.py :8501] -->|POST /ask/details| API[FastAPI<br/>api.py :8002]
     API --> G
     subgraph G [LangGraph agent, copilot/agent.py]
         GI[guard_input<br/>injection? write?] -->|ok| P[plan<br/>LLM, JSON]
@@ -106,17 +106,28 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt -r requir
 | Endpoint | What it does |
 |---|---|
 | `POST /ask` `{"question": "..."}` | Returns `{answer, citations, tools_used, refused, reason}`, always valid against `CopilotAnswer` |
+| `POST /ask/details` `{"question": "..."}` | `{output, details}`: the same answer plus cited chunks with retrieval scores, tool inputs/outputs, the guardrail decision (allowed / refused / blocked) and why, latency and tokens. Used by the UI |
 | `GET /health` | Model names and the number of chunks indexed |
+
+## Live demo (UI)
+
+1. Start Ollama (`ollama serve`, or open the Ollama app) and the ledger (`docker compose up -d` in `../project2-payment-ledger`).
+2. `docker compose up --build -d`, then wait until `curl localhost:8002/health` shows `"chunks_indexed": 189`.
+3. Open http://localhost:8501 and click the four sidebar examples: a docs question, a live-ledger tool question,
+   a prompt-injection attempt and an unanswerable question. Each answer shows its guardrail decision, latency and tokens,
+   expandable citations (file § section + retrieval score) and the tools called with their inputs and outputs.
+
+The first question after a start is slow: Ollama loads the 7B model into memory. Ask one warm-up question before the audience is watching.
 
 ## Test
 
 ```bash
-.venv/bin/ruff check . && COPILOT_FAKE_LLM=1 .venv/bin/pytest -v     # 89 tests, < 1 s, no Ollama or ledger needed
+.venv/bin/ruff check . && COPILOT_FAKE_LLM=1 .venv/bin/pytest -v     # 95 tests, < 1 s, no Ollama or ledger needed
 ```
 
 GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `ruff` and `pytest` with the fake LLM on every push.
 The tests cover chunking, retrieval and the cache, agent routing, the step cap and loop breaker, every guardrail (including a poisoned document),
-the output schema, GET-only tools on a mocked HTTP transport, the API, the eval metrics and the trace format.
+the output schema, GET-only tools on a mocked HTTP transport, the API, the demo UI (headless `AppTest`), the eval metrics and the trace format.
 
 ## Learn more
 
